@@ -13,18 +13,21 @@ app.config.from_object('config.Config')
 init_db(app)
 CORS(app)
 
-@app.route('/user_register', methods=['POST'])
+## ユーザ登録
+@app.route('/setup', methods=['POST'])
 def user_register():
   user = request.get_json()
   if request.method == 'POST':
     user_info = User(
       user_name = user['name'],
       email = user['email'],
+      groups = ",".join(user["group"]),
       password = hash(user['password'])
     )
     db.session.add(user_info)
     db.session.commit()
-  
+
+## ログイン認証
 @app.route("/login",methods=["GET","POST"])
 def login():
     user = request.get_json()
@@ -35,57 +38,70 @@ def login():
     else:
         return user_info
 
-@app.route("/user",methods=["GET","POST"])
+## ユーザ探索
+@app.route("/usersearch",methods=["GET","POST"])
 def profile():
     user_id = request.get_json()["id"]
     user_data = db.get_or_404(User,user_id)
     user_blog = db.session.query(Thread).filter(Thread.user_id == user_id)
     return make_response(jsonify({"user_info":user_data,"blog_info":user_blog}))
 
+## グループ追加
+@app.route("/groupadd",methods=["GET","POST"])
+def groupadd():
+    user_data = request.get_json()
+    user_info = db.get_or_404(User,user_data["id"])
+    user_info.group = ",".join(user_data["group"])
+    db.session.add(user_info)
+    db.session.commit()
+
+## 記事作成
 @app.route("/blogcreate",methods=["GET","POST"])
 def create():
     blog_info = request.get_json()
     blog_info["sub_tag"] = ",".join(blog_info["sub_tag"])
     db.session.add(blog_info)
 
-@app.route("/open_or_close",methods=["GET","POST"])
-def open():
+## 記事更新
+@app.route("/blogedit",methods=["GET","POST"])
+def blogedit():
     blog_data = request.get_json()
     blog_info = db.session.query(Thread).filter(Thread.id == blog_data["id"])
+    blog_info.title = blog_data["title"]
+    blog_info.content = blog_data["content"]
+    blog_info.group = blog_data["group"]
+    blog_info.tag = blog_data["tag"]
     blog_info.open_op = blog_data["option"]
     db.session.commit()
     
-@app.route("/blog_delate",methods=["GET","POST"])
-def delate():
-    blog_title = request.get_json()
-    blog_list = json.load(open(BLOG_PATH, 'r'))
-    for blog in blog_list:
-        if blog_list["title"]==blog_title:
-            blog_list.remove(blog)
-            break
+# @app.route("/blog_delate",methods=["GET","POST"])
+# def delate():
+#     blog_title = request.get_json()
+#     blog_list = json.load(open(BLOG_PATH, 'r'))
+#     for blog in blog_list:
+#         if blog_list["title"]==blog_title:
+#             blog_list.remove(blog)
+#             break
 
+## 記事取得
 @app.route("/display",methods=["GET","POST"])
 def display():
-    user_data = json.load(open(USER_PATH, 'r',encoding="UTF-8"))["ganbon"]
-    session.permanent = True 
-    session["user"] = user_data
-    blog_data = json.load(open(BLOG_PATH, 'r',encoding="UTF-8"))
     blog_list = []
-    for id,blog in blog_data.items():
-        if blog["rule"] and set(blog["group"]) & set(user_data["group"])== set(blog["group"]):
-            blog_list.append({"id":id,"title":blog["title"]})
-        elif blog["rule"]==False and set(blog["group"]) & set(user_data["group"])!=set():
-            blog_list.append({"id":id,"title":blog["title"]})
+    user_group = request.get_json()["groups"]
+    blog_data = db.session.query(Thread).all()
+    for blog in blog_data:
+        if blog.group_op and set(user_group) & set(blog.group.split(",")) == set(blog.group.split(",")):
+            blog_list.append(blog)
+        elif not blog.group_op and set(user_group) & set(blog.group.split(",")) != set():
+            blog_list.append(blog)
     return make_response(jsonify({"blog_list":blog_list}))
 
+## 記事の内容取得
 @app.route("/contents",methods=["GET","POST"])
 def contents():
     blog_id = request.get_json()["id"]
     print(blog_id)
-    blog_list = json.load(open(BLOG_PATH, 'r',encoding="UTF-8"))
-    target = blog_list[blog_id]
-    target.pop("article_path")
-    target.pop("rule")
+    target = db.session.query(Thread).filter(Thread.id == blog_id)
     return make_response(jsonify({"blog":target}))
     
 if __name__ == "__main__":
